@@ -3,13 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "docker compose up -d && next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "postinstall": "prisma skills sync || exit 0"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
+    "@prisma/client": "^7.10.1",
     "@shadcn/react": "^0.3.1",
     "class-variance-authority": "^0.7.1",
     "cmdk": "^1.1.1",
@@ -32,6 +34,7 @@
     "@tailwindcss/turbopack": "^4",
     "eslint": "^9",
     "eslint-config-next": "16.4.5",
+    "prisma": "^7.10.1",
     "tailwindcss": "^4"
   }
 }
