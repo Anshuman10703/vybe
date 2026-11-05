@@ -1,9 +1,9 @@
 "use client";
+
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import TextAreaAutosize from "react-textarea-autosize";
-import { ArrowUpIcon, Loader2Icon } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { ArrowUpIcon } from "lucide-react";
 import { toast } from "sonner";
 import { useState } from "react";
 import z from "zod";
@@ -11,6 +11,7 @@ import z from "zod";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Form, FormField } from "@/components/ui/form";
+import { onInvoke } from "../actions";
 
 const formSchema = z.object({
   content: z
@@ -72,7 +73,6 @@ const PROJECT_TEMPLATES = [
 
 const ProjectsForm = () => {
   const [isFocused, setIsFocused] = useState(false);
-  const router = useRouter();
 
   const form = useForm({
     resolver: zodResolver(formSchema),
@@ -82,24 +82,47 @@ const ProjectsForm = () => {
   });
 
   const handleTemplate = (prompt) => {
-    form.setValue("content", prompt);
+    form.setValue("content", prompt, {
+      shouldValidate: true,
+      shouldDirty: true,
+    });
   };
 
   const onSubmit = async (values) => {
     try {
-      console.log(values);
-    } catch (error) {}
+      const result = await onInvoke(values.content);
+
+      console.log(result);
+      toast.success("Request submitted successfully");
+    } catch (error) {
+      console.error(error);
+      toast.error(error.message || "Something went wrong");
+    }
+  };
+
+  const onInvokeAI = async () => {
+    try {
+      const res = await onInvoke("Hello from Vybe!");
+
+      console.log(res);
+      toast.success("Inngest event triggered successfully");
+    } catch (error) {
+      console.error(error);
+      toast.error("Something went wrong");
+    }
   };
 
   return (
     <div className="space-y-8">
       {/* Template Grid */}
+      <Button onClick={onInvokeAI}>Invoke AI Agent</Button>
+
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {PROJECT_TEMPLATES.map((template, index) => (
           <button
             key={index}
+            type="button"
             onClick={() => handleTemplate(template.prompt)}
-            // disabled={isPending}
             className="group relative p-4 rounded-xl border bg-card hover:bg-accent/50 transition-all duration-200 text-left disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-md hover:border-primary/30"
           >
             <div className="flex flex-col gap-2">
@@ -110,6 +133,7 @@ const ProjectsForm = () => {
                 {template.title}
               </h3>
             </div>
+
             <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
           </button>
         ))}
@@ -119,6 +143,7 @@ const ProjectsForm = () => {
         <div className="absolute inset-0 flex items-center">
           <span className="w-full border-t" />
         </div>
+
         <div className="relative flex justify-center text-xs uppercase">
           <span className="bg-background px-2 text-muted-foreground">
             Or describe your own idea
@@ -140,7 +165,6 @@ const ProjectsForm = () => {
             render={({ field }) => (
               <TextAreaAutosize
                 {...field}
-                // disabled={isPending}
                 placeholder="Describe what you want to create..."
                 onFocus={() => setIsFocused(true)}
                 onBlur={() => setIsFocused(false)}
@@ -148,12 +172,11 @@ const ProjectsForm = () => {
                 maxRows={8}
                 className={cn(
                   "pt-4 resize-none border-none w-full outline-none bg-transparent",
-                  //   isPending && "opacity-50"
                 )}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
                     e.preventDefault();
-                    form.handleSubmit(onSubmit)(e);
+                    form.handleSubmit(onSubmit)();
                   }
                 }}
               />
@@ -167,7 +190,8 @@ const ProjectsForm = () => {
               </kbd>
               &nbsp; to submit
             </div>
-            <Button className={cn("size-8 rounded-full")} type="submit">
+
+            <Button className="size-8 rounded-full" type="submit">
               <ArrowUpIcon className="size-4" />
             </Button>
           </div>
