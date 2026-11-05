@@ -7,10 +7,12 @@ export const onInvoke = async (prompt) => {
     throw new Error("A valid prompt is required.");
   }
 
+  // Event name and data shape must match the code-agent function:
+  // triggers: { event: "code-agent/run" } and event.data.value
   const { ids } = await inngest.send({
-    name: "agent/hello",
+    name: "code-agent/run",
     data: {
-      prompt: prompt.trim(),
+      value: prompt.trim(),
     },
   });
 
