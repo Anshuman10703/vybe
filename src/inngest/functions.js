@@ -10,6 +10,8 @@ import Sandbox from "@e2b/code-interpreter";
 import { z } from "zod";
 import { PROMPT } from "@/prompt";
 import { lastAssistantTextMessageContent } from "./utils";
+import db from "@/lib/db";
+import { MessageRole, MessageType } from "@/generated/prisma/client";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 if (!GEMINI_API_KEY) {
@@ -35,6 +37,13 @@ export const codeAgentFunction = inngest.createFunction(
     if (typeof userInput !== "string" || !userInput.trim()) {
       throw new NonRetriableError(
         "event.data.value must be a non-empty string.",
+      );
+    }
+
+    const projectId = event.data?.projectId;
+    if (typeof projectId !== "string" || !projectId) {
+      throw new NonRetriableError(
+        "event.data.projectId must be a non-empty string.",
       );
     }
 
@@ -203,6 +212,35 @@ export const codeAgentFunction = inngest.createFunction(
     const sandboxUrl = await step.run("get-sandbox-url", async () => {
       const sandbox = await Sandbox.connect(sandboxId);
       return `https://${sandbox.getHost(3000)}`;
+    });
+
+    await step.run("save-result", async () => {
+      if (isError) {
+        return await db.message.create({
+          data: {
+            projectId,
+            content: "Something went wrong. Please try again",
+            role: MessageRole.ASSISTANT,
+            type: MessageType.ERROR,
+          },
+        });
+      }
+
+      return await db.message.create({
+        data: {
+          projectId,
+          content: summary,
+          role: MessageRole.ASSISTANT,
+          type: MessageType.RESULT,
+          fragments: {
+            create: {
+              sandboxUrl,
+              title: "Untitled",
+              files,
+            },
+          },
+        },
+      });
     });
 
     return {
