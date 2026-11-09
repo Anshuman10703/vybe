@@ -1,7 +1,9 @@
-import ProjectsForm from "@/modules/home/components/project--form";
+import { Button } from "@/components/ui/button";
+
+import ProjectsForm from "@/modules/home/components/project-form";
+import ProjectList from "@/modules/home/components/project-list";
 import Image from "next/image";
 import React from "react";
-import { Button } from "@/components/ui/button";
 
 const Page = () => {
   return (
@@ -18,7 +20,7 @@ const Page = () => {
             />
           </div>
           <h1 className="text-2xl md:text-5xl font-bold text-center">
-            Build Something with ❣️
+            Build Something with ❤️
           </h1>
 
           <p className="text-lg md:text-xl text-muted-foreground text-center">
@@ -28,6 +30,7 @@ const Page = () => {
           <div className="max-w-3xl w-full">
             <ProjectsForm />
           </div>
+          <ProjectList />
         </section>
       </div>
     </div>
