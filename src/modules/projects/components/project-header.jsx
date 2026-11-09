@@ -46,11 +46,9 @@ const ProjectHeader = ({ projectId }) => {
         </DropdownMenuTrigger>
 
         <DropdownMenuContent side="bottom" align="start">
-          <DropdownMenuItem asChild>
-            <Link href="/">
-              <ChevronLeftIcon className="size-4" />
-              <span>Go to Dashboard</span>
-            </Link>
+          <DropdownMenuItem render={<Link href="/" />}>
+            <ChevronLeftIcon className="size-4" />
+            <span>Go to Dashboard</span>
           </DropdownMenuItem>
 
           <DropdownMenuSeparator />
