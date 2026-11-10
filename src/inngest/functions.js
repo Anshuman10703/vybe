@@ -1,80 +1,120 @@
 import { inngest } from "./client";
+
 import {
   gemini,
   createAgent,
   createTool,
   createNetwork,
 } from "@inngest/agent-kit";
-import { NonRetriableError } from "inngest";
+
 import Sandbox from "@e2b/code-interpreter";
-import { z } from "zod";
-import { PROMPT } from "@/prompt";
+import z from "zod";
+
+import { FRAGMENT_TITLE_PROMPT, PROMPT, RESPONSE_PROMPT } from "@/prompt";
+
 import { lastAssistantTextMessageContent } from "./utils";
 import db from "@/lib/db";
-import { MessageRole, MessageType } from "@/generated/prisma/client";
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-if (!GEMINI_API_KEY) {
-  throw new Error("GEMINI_API_KEY is not set in the server environment.");
-}
+import { MessageRole, MessageType } from "@/modules/messages/constants";
 
-// Use a model ID your key can access (same one that worked for hello-world).
-const GEMINI_MODEL = process.env.GEMINI_MODEL ?? "gemini-3.1-flash-lite";
+// --------------------------------------------------
+// Configuration
+// --------------------------------------------------
 
-// The agent loop can take several minutes; the e2b default timeout is short.
-const SANDBOX_TIMEOUT_MS = 30 * 60 * 1000;
+const SANDBOX_TEMPLATE = "vybe";
+const PREVIEW_PORT = 3000;
+const GEMINI_MODEL = "gemini-3.1-flash-lite";
+
+// --------------------------------------------------
+// Helpers
+// --------------------------------------------------
+
+const extractTextOutput = (output, fallback) => {
+  const textOutput = output?.find((item) => item.type === "text");
+
+  if (!textOutput) {
+    return fallback;
+  }
+
+  if (Array.isArray(textOutput.content)) {
+    return textOutput.content
+      .map((part) => (typeof part === "string" ? part : (part?.text ?? "")))
+      .join("");
+  }
+
+  return textOutput.content || fallback;
+};
+
+const createGeminiAgent = ({ name, description, system }) => {
+  return createAgent({
+    name,
+    description,
+    system,
+    model: gemini({
+      model: GEMINI_MODEL,
+    }),
+  });
+};
+
+// --------------------------------------------------
+// Inngest Function
+// --------------------------------------------------
 
 export const codeAgentFunction = inngest.createFunction(
   {
     id: "code-agent",
-    retries: 1,
-    // Same trigger format as your working hello-world function.
-    triggers: { event: "code-agent/run" },
+    triggers: {
+      event: "code-agent/run",
+    },
   },
 
   async ({ event, step }) => {
-    const userInput = event.data?.value;
-    if (typeof userInput !== "string" || !userInput.trim()) {
-      throw new NonRetriableError(
-        "event.data.value must be a non-empty string.",
-      );
-    }
+    // --------------------------------------------------
+    // Step 1: Create E2B Sandbox
+    // --------------------------------------------------
 
-    const projectId = event.data?.projectId;
-    if (typeof projectId !== "string" || !projectId) {
-      throw new NonRetriableError(
-        "event.data.projectId must be a non-empty string.",
-      );
-    }
-
-    // Step 1: create the sandbox
     const sandboxId = await step.run("get-sandbox-id", async () => {
-      const sandbox = await Sandbox.create("v0-nextjs-build-new", {
-        timeoutMs: SANDBOX_TIMEOUT_MS,
+      const sandbox = await Sandbox.create(SANDBOX_TEMPLATE, {
         network: {
           allowPublicTraffic: true,
         },
       });
+
       return sandbox.sandboxId;
     });
+
+    // --------------------------------------------------
+    // Step 2: Create Coding Agent
+    // --------------------------------------------------
 
     const codeAgent = createAgent({
       name: "code-agent",
       description: "An expert coding agent",
       system: PROMPT,
-      model: gemini({ model: GEMINI_MODEL, apiKey: GEMINI_API_KEY }),
+
+      model: gemini({
+        model: GEMINI_MODEL,
+      }),
+
       tools: [
-        // 1. Terminal
+        // ----------------------------------------------
+        // Terminal Tool
+        // ----------------------------------------------
+
         createTool({
           name: "terminal",
-          description: "Use the terminal to run commands",
+          description: "Execute terminal commands inside the E2B sandbox.",
+
           parameters: z.object({
             command: z.string(),
           }),
-          // step?.run inside a tool handler is correct. It is the agent-kit pattern.
+
           handler: async ({ command }, { step }) => {
-            return await step?.run("terminal", async () => {
-              const buffers = { stdout: "", stderr: "" };
+            return await step.run("terminal", async () => {
+              const buffers = {
+                stdout: "",
+                stderr: "",
+              };
 
               try {
                 const sandbox = await Sandbox.connect(sandboxId);
@@ -83,25 +123,38 @@ export const codeAgentFunction = inngest.createFunction(
                   onStdout: (data) => {
                     buffers.stdout += data;
                   },
+
                   onStderr: (data) => {
                     buffers.stderr += data;
                   },
                 });
 
-                return result.stdout;
+                return JSON.stringify({
+                  stdout: result.stdout || buffers.stdout,
+                  stderr: result.stderr || buffers.stderr,
+                  exitCode: result.exitCode,
+                });
               } catch (error) {
-                const message = `Command failed: ${error}\nstdout: ${buffers.stdout}\nstderr: ${buffers.stderr}`;
-                console.log(message);
-                return message;
+                console.error("Sandbox terminal execution failed:", error);
+
+                return JSON.stringify({
+                  error: error.message,
+                  stdout: buffers.stdout,
+                  stderr: buffers.stderr,
+                });
               }
             });
           },
         }),
 
-        // 2. createOrUpdateFiles
+        // ----------------------------------------------
+        // Create / Update Files Tool
+        // ----------------------------------------------
+
         createTool({
           name: "createOrUpdateFiles",
-          description: "Create or update files in the sandbox",
+          description: "Create or update files in the E2B sandbox.",
+
           parameters: z.object({
             files: z.array(
               z.object({
@@ -110,68 +163,88 @@ export const codeAgentFunction = inngest.createFunction(
               }),
             ),
           }),
+
           handler: async ({ files }, { step, network }) => {
-            const newFiles = await step?.run(
+            const updatedFiles = await step.run(
               "createOrUpdateFiles",
               async () => {
                 try {
-                  const updatedFiles = {
-                    ...(network?.state?.data?.files ?? {}),
-                  };
                   const sandbox = await Sandbox.connect(sandboxId);
+
+                  const existingFiles = network?.state?.data?.files || {};
+
+                  const newFiles = {
+                    ...existingFiles,
+                  };
 
                   for (const file of files) {
                     await sandbox.files.write(file.path, file.content);
-                    updatedFiles[file.path] = file.content;
+
+                    newFiles[file.path] = file.content;
                   }
 
-                  return updatedFiles;
+                  return newFiles;
                 } catch (error) {
-                  return `Error: ${error}`;
+                  console.error("File creation/update failed:", error);
+
+                  throw error;
                 }
               },
             );
 
-            // On failure, tell the model what went wrong so it can retry.
-            if (typeof newFiles !== "object" || newFiles === null) {
-              return newFiles ?? "Error: createOrUpdateFiles did not run.";
+            if (network) {
+              network.state.data.files = updatedFiles;
             }
 
-            if (network) {
-              network.state.data.files = newFiles;
-            }
-            // Return something so the model sees the tool succeeded.
-            return `Wrote ${files.length} file(s): ${files
-              .map((f) => f.path)
-              .join(", ")}`;
+            return JSON.stringify({
+              success: true,
+              updatedFiles: Object.keys(updatedFiles),
+            });
           },
         }),
 
-        // 3. readFiles
+        // ----------------------------------------------
+        // Read Files Tool
+        // ----------------------------------------------
+
         createTool({
           name: "readFiles",
-          description: "Read files in the sandbox",
+          description: "Read files from the E2B sandbox.",
+
           parameters: z.object({
             files: z.array(z.string()),
           }),
+
           handler: async ({ files }, { step }) => {
-            return await step?.run("readFiles", async () => {
+            return await step.run("readFiles", async () => {
               try {
                 const sandbox = await Sandbox.connect(sandboxId);
+
                 const contents = [];
 
                 for (const file of files) {
                   const content = await sandbox.files.read(file);
-                  contents.push({ path: file, content });
+
+                  contents.push({
+                    path: file,
+                    content,
+                  });
                 }
+
                 return JSON.stringify(contents);
               } catch (error) {
-                return `Error: ${error}`;
+                console.error("File reading failed:", error);
+
+                throw error;
               }
             });
           },
         }),
       ],
+
+      // ----------------------------------------------
+      // Agent Lifecycle
+      // ----------------------------------------------
 
       lifecycle: {
         onResponse: async ({ result, network }) => {
@@ -189,38 +262,101 @@ export const codeAgentFunction = inngest.createFunction(
       },
     });
 
+    // --------------------------------------------------
+    // Step 3: Create Agent Network
+    // --------------------------------------------------
+
     const network = createNetwork({
       name: "coding-agent-network",
+
       agents: [codeAgent],
-      maxIter: 15,
+
+      maxIter: 10,
+
       router: async ({ network }) => {
-        // Stop once the agent has produced its <task_summary>.
-        if (network.state.data.summary) {
+        const summary = network.state.data.summary;
+
+        if (summary) {
           return;
         }
+
         return codeAgent;
       },
     });
 
-    // Do NOT wrap network.run in step.run. agent-kit makes its own steps.
-    const result = await network.run(userInput);
+    // --------------------------------------------------
+    // Step 4: Run Coding Agent
+    // --------------------------------------------------
 
-    const files = result.state.data.files || {};
+    const result = await network.run(event.data.value);
+
     const summary = result.state.data.summary;
+    const files = result.state.data.files || {};
+
+    // --------------------------------------------------
+    // Step 5: Generate Fragment Title
+    // --------------------------------------------------
+
+    const fragmentTitleGenerator = createGeminiAgent({
+      name: "fragment-title-generator",
+      description: "Generate a concise title for the generated project.",
+      system: FRAGMENT_TITLE_PROMPT,
+    });
+
+    // --------------------------------------------------
+    // Step 6: Generate Assistant Response
+    // --------------------------------------------------
+
+    const responseGenerator = createGeminiAgent({
+      name: "response-generator",
+      description: "Generate a response explaining the generated project.",
+      system: RESPONSE_PROMPT,
+    });
+
+    const [fragmentTitleResult, responseResult] = await Promise.all([
+      fragmentTitleGenerator.run(summary || "Untitled project"),
+      responseGenerator.run(summary || "Project generation completed"),
+    ]);
+
+    const fragmentTitle = extractTextOutput(
+      fragmentTitleResult.output,
+      "Untitled",
+    );
+
+    const response = extractTextOutput(responseResult.output, "Here you go!");
+
+    // --------------------------------------------------
+    // Step 7: Determine Generation Status
+    // --------------------------------------------------
+
     const isError = !summary || Object.keys(files).length === 0;
+
+    // --------------------------------------------------
+    // Step 8: Generate Preview URL
+    // --------------------------------------------------
 
     const sandboxUrl = await step.run("get-sandbox-url", async () => {
       const sandbox = await Sandbox.connect(sandboxId);
-      return `https://${sandbox.getHost(3000)}`;
+
+      const host = sandbox.getHost(PREVIEW_PORT);
+
+      return `https://${host}`;
     });
+
+    // --------------------------------------------------
+    // Step 9: Save Result to Database
+    // --------------------------------------------------
 
     await step.run("save-result", async () => {
       if (isError) {
         return await db.message.create({
           data: {
-            projectId,
-            content: "Something went wrong. Please try again",
+            projectId: event.data.projectId,
+
+            content: "Something went wrong. Please try again.",
+
             role: MessageRole.ASSISTANT,
+
             type: MessageType.ERROR,
           },
         });
@@ -228,14 +364,20 @@ export const codeAgentFunction = inngest.createFunction(
 
       return await db.message.create({
         data: {
-          projectId,
-          content: summary,
+          projectId: event.data.projectId,
+
+          content: response,
+
           role: MessageRole.ASSISTANT,
+
           type: MessageType.RESULT,
+
           fragments: {
             create: {
               sandboxUrl,
-              title: "Untitled",
+
+              title: fragmentTitle,
+
               files,
             },
           },
@@ -243,13 +385,16 @@ export const codeAgentFunction = inngest.createFunction(
       });
     });
 
+    // --------------------------------------------------
+    // Step 10: Return Result
+    // --------------------------------------------------
+
     return {
-      success: !isError,
       url: sandboxUrl,
-      sandboxId,
-      title: "Untitled",
+      title: fragmentTitle,
       files,
       summary,
+      sandboxId,
     };
   },
 );
