@@ -26,9 +26,12 @@ export const useCreateMessages = (projectId) => {
   return useMutation({
     mutationFn: (value) => createMessages(value, projectId),
     onSuccess: () => {
-      queryClient.invalidateQueries({
+      (queryClient.invalidateQueries({
         queryKey: ["messages", projectId],
-      });
+      }),
+        queryClient.invalidateQueries({
+          queryKey: ["status"],
+        }));
     },
   });
 };
