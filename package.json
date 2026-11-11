@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "docker compose up -d && next dev",
-    "build": "prisma generate && next build",
+    "build": "prisma generate --config prisma7.config.ts && next build",
     "start": "next start",
     "lint": "eslint",
     "postinstall": "prisma skills sync || exit 0"
