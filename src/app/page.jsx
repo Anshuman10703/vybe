@@ -1,24 +1,45 @@
-import { Button } from "@/components/ui/button";
+import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
 
 import ProjectsForm from "@/modules/home/components/project-form";
 import ProjectList from "@/modules/home/components/project-list";
 import Image from "next/image";
-import React from "react";
 
 const Page = () => {
   return (
-    <div className="flex items-center justify-center w-full px-4 py-8">
+    <div className="relative flex items-center justify-center w-full px-4 py-8">
+      {/* Authentication controls */}
+      <div className="absolute top-4 right-4 flex items-center gap-3">
+        <Show when="signed-out">
+          <SignInButton mode="modal">
+            <button className="rounded-lg border px-4 py-2 text-sm font-medium hover:bg-accent">
+              Sign In
+            </button>
+          </SignInButton>
+
+          <SignUpButton mode="modal">
+            <button className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90">
+              Sign Up
+            </button>
+          </SignUpButton>
+        </Show>
+
+        <Show when="signed-in">
+          <UserButton />
+        </Show>
+      </div>
+
       <div className="max-w-5xl w-full">
         <section className="space-y-8 flex flex-col items-center">
           <div className="flex flex-col items-center">
             <Image
-              src={"/logo.svg"}
+              src="/logo.svg"
               width={100}
               height={100}
-              alt="Logo"
+              alt="Vybe Logo"
               className="hidden md:block invert dark:invert-0"
             />
           </div>
+
           <h1 className="text-2xl md:text-5xl font-bold text-center">
             Build Something with ❤️
           </h1>
@@ -30,6 +51,7 @@ const Page = () => {
           <div className="max-w-3xl w-full">
             <ProjectsForm />
           </div>
+
           <ProjectList />
         </section>
       </div>

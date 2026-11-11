@@ -1,82 +1,54 @@
-"use server";
-
+import { auth, currentUser } from "@clerk/nextjs/server";
 import db from "@/lib/db";
-import { currentUser } from "@clerk/nextjs/server";
-
-export const onBoardUser = async () => {
-  try {
-    const user = await currentUser();
-
-    if (!user) {
-      return {
-        success: false,
-        error: "No authenticated user found",
-      };
-    }
-
-    const { id, firstName, lastName, imageUrl, emailAddresses } = user;
-
-    const newUser = await db.user.upsert({
-      where: {
-        clerkId: id,
-      },
-      update: {
-        name:
-          firstName && lastName
-            ? `${firstName} ${lastName}`
-            : firstName || lastName || null,
-        image: imageUrl || null,
-        email: emailAddresses[0]?.emailAddress || "",
-      },
-      create: {
-        clerkId: id,
-        name:
-          firstName && lastName
-            ? `${firstName} ${lastName}`
-            : firstName || lastName || null,
-        image: imageUrl || null,
-        email: emailAddresses[0]?.emailAddress || "",
-      },
-    });
-
-    return {
-      success: true,
-      user: newUser,
-      message: "User onboarded successfully",
-    };
-  } catch (error) {
-    console.error("❌ Error onboarding user:", error);
-    return {
-      success: false,
-      error: "Failed to onboard user",
-    };
-  }
-};
 
 export const getCurrentUser = async () => {
   try {
-    const user = await currentUser();
+    const { userId } = await auth();
 
-    if (!user) {
+    if (!userId) {
       return null;
     }
 
-    const dbUser = await db.user.findUnique({
-      where: {
-        clerkId: user.id,
-      },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        image: true,
-        clerkId: true,
-      },
+    // Fast path: return the existing database user.
+    const existingUser = await db.user.findUnique({
+      where: { clerkId: userId },
     });
 
-    return dbUser;
+    if (existingUser) {
+      return existingUser;
+    }
+
+    // First sign-in: fetch the Clerk profile.
+    const clerkUser = await currentUser();
+
+    if (!clerkUser) {
+      return null;
+    }
+
+    const email =
+      clerkUser.emailAddresses.find(
+        (address) => address.id === clerkUser.primaryEmailAddressId,
+      )?.emailAddress ??
+      clerkUser.emailAddresses[0]?.emailAddress ??
+      "";
+
+    const name =
+      [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ") ||
+      null;
+
+    // Create the user, handling potential concurrent first sign-ins.
+    return await db.user.upsert({
+      where: { clerkId: userId },
+      update: {},
+      create: {
+        clerkId: userId,
+        email,
+        name,
+        image: clerkUser.imageUrl,
+      },
+    });
   } catch (error) {
-    console.error("❌ Error fetching current user:", error);
-    return null;
+    console.error("Error fetching current user:", error);
+    throw error;
   }
 };
