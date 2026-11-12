@@ -1,10 +1,21 @@
-import { clerkMiddleware } from "@clerk/nextjs/server";
+import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
-export default clerkMiddleware({
-  frontendApiProxy: {
-    enabled: true,
+const isPublicRoute = createRouteMatcher(["/api/inngest(.*)"]);
+
+export default clerkMiddleware(
+  async (auth, req) => {
+    if (isPublicRoute(req)) {
+      return;
+    }
+
+    // Keep other routes under Clerk middleware.
   },
-});
+  {
+    frontendApiProxy: {
+      enabled: true,
+    },
+  },
+);
 
 export const config = {
   matcher: [
