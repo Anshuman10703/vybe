@@ -1,25 +1,47 @@
+"use client";
+
+import { useAuth } from "@clerk/nextjs";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+
 import { createProject, getProjectById, getProjects } from "../actions";
 
 export const useGetProjects = () => {
+  const { isLoaded, isSignedIn } = useAuth();
+
   return useQuery({
     queryKey: ["projects"],
-    queryFn: () => getProjects(),
+    queryFn: getProjects,
+    enabled: isLoaded && !!isSignedIn,
+    retry: false,
   });
 };
 
 export const useCreateProject = () => {
   const queryClient = useQueryClient();
+
   return useMutation({
-    mutationFn: (value) => createProject(value),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ["projects", "status"] }),
+    mutationFn: createProject,
+
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["projects"],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["status"],
+        }),
+      ]);
+    },
   });
 };
 
 export const useGetProjectById = (projectId) => {
+  const { isLoaded, isSignedIn } = useAuth();
+
   return useQuery({
     queryKey: ["project", projectId],
     queryFn: () => getProjectById(projectId),
+    enabled: isLoaded && !!isSignedIn && !!projectId,
+    retry: false,
   });
 };
