@@ -6,10 +6,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createProject, getProjectById, getProjects } from "../actions";
 
 export const useGetProjects = () => {
-  const { isLoaded, isSignedIn } = useAuth();
+  const { isLoaded, isSignedIn, userId } = useAuth();
 
   return useQuery({
-    queryKey: ["projects"],
+    queryKey: ["projects", userId],
     queryFn: getProjects,
     enabled: isLoaded && !!isSignedIn,
     retry: false,
@@ -36,10 +36,10 @@ export const useCreateProject = () => {
 };
 
 export const useGetProjectById = (projectId) => {
-  const { isLoaded, isSignedIn } = useAuth();
+  const { isLoaded, isSignedIn, userId } = useAuth();
 
   return useQuery({
-    queryKey: ["project", projectId],
+    queryKey: ["project", projectId, userId],
     queryFn: () => getProjectById(projectId),
     enabled: isLoaded && !!isSignedIn && !!projectId,
     retry: false,
