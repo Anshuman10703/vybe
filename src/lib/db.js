@@ -3,13 +3,25 @@ import { PrismaPg } from "@prisma/adapter-pg";
 
 const globalForPrisma = globalThis;
 
-const createPrismaClient = () => {
-  return new PrismaClient({
-    adapter: new PrismaPg({
-      connectionString: process.env.DATABASE_URL,
-    }),
+function createPrismaClient() {
+  const connectionString = process.env.DATABASE_URL;
+
+  if (!connectionString) {
+    throw new Error("DATABASE_URL environment variable is not configured.");
+  }
+
+  const adapter = new PrismaPg({
+    connectionString,
   });
-};
+
+  return new PrismaClient({
+    adapter,
+    log:
+      process.env.NODE_ENV === "development"
+        ? ["query", "warn", "error"]
+        : ["error"],
+  });
+}
 
 const db = globalForPrisma.prisma ?? createPrismaClient();
 

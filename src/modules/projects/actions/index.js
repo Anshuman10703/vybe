@@ -4,69 +4,90 @@ import { inngest } from "@/inngest/client";
 import db from "@/lib/db";
 import { consumeCredits } from "@/lib/usage";
 import { getCurrentUser } from "@/modules/auth/actions";
+
 import { MessageRole, MessageType } from "@/generated/prisma/client";
+
 import { generateSlug } from "random-word-slugs";
 
-export const createProject = async (value) => {
+async function requireAuthenticatedUser() {
   const user = await getCurrentUser();
 
-  if (!user) throw new Error("Unauthorized");
-
-  if (!value || !value.trim()) throw new Error("Prompt cannot be empty");
-
-  try {
-    await consumeCredits();
-  } catch (error) {
-    console.error("consumeCredits failed:", error);
-
-    if (error instanceof Error) {
-      // Real failure (DB, config, auth, etc.)
-      throw new Error(`Credit check failed: ${error.message}`);
-    }
-
-    // rate-limiter-flexible rejects with a plain RateLimiterRes object
-    // (not an Error) when the user is out of credits
-    throw new Error("You have run out of credits. Please try again later.");
+  if (!user?.id) {
+    throw new Error("Unauthorized");
   }
 
-  try {
-    const newProject = await db.project.create({
-      data: {
-        name: generateSlug(2, { format: "kebab" }),
-        userId: user.id,
-        messages: {
-          create: {
-            content: value,
-            role: MessageRole.USER,
-            type: MessageType.RESULT,
-          },
+  return user;
+}
+
+function validatePrompt(value) {
+  if (typeof value !== "string") {
+    throw new Error("Invalid prompt.");
+  }
+
+  const prompt = value.trim();
+
+  if (!prompt) {
+    throw new Error("Prompt cannot be empty.");
+  }
+
+  if (prompt.length > 20000) {
+    throw new Error("Prompt is too long.");
+  }
+
+  return prompt;
+}
+
+function validateProjectId(projectId) {
+  if (typeof projectId !== "string" || !projectId.trim()) {
+    throw new Error("Invalid project ID.");
+  }
+
+  return projectId.trim();
+}
+
+export async function createProject(value) {
+  const user = await requireAuthenticatedUser();
+  const prompt = validatePrompt(value);
+
+  await consumeCredits();
+
+  const project = await db.project.create({
+    data: {
+      name: generateSlug(2, {
+        format: "kebab",
+      }),
+      userId: user.id,
+      messages: {
+        create: {
+          content: prompt,
+          role: MessageRole.USER,
+          type: MessageType.RESULT,
         },
       },
-    });
+    },
+  });
 
+  try {
     await inngest.send({
       name: "code-agent/run",
       data: {
-        value: value,
-        projectId: newProject.id,
+        value: prompt,
+        projectId: project.id,
       },
     });
-
-    return newProject;
   } catch (error) {
-    console.error("createProject failed:", error);
-    throw new Error(
-      error instanceof Error ? error.message : "Something went wrong",
-    );
+    console.error("Inngest dispatch failed:", error);
+
+    throw new Error("Project created, but AI generation could not start.");
   }
-};
 
-export const getProjects = async () => {
-  const user = await getCurrentUser();
+  return project;
+}
 
-  if (!user) throw new Error("Unauthorized");
+export async function getProjects() {
+  const user = await requireAuthenticatedUser();
 
-  const projects = await db.project.findMany({
+  return db.project.findMany({
     where: {
       userId: user.id,
     },
@@ -74,22 +95,22 @@ export const getProjects = async () => {
       createdAt: "desc",
     },
   });
+}
 
-  return projects;
-};
+export async function getProjectById(projectId) {
+  const user = await requireAuthenticatedUser();
+  const validatedProjectId = validateProjectId(projectId);
 
-export const getProjectById = async (projectId) => {
-  const user = await getCurrentUser();
-  if (!user) throw new Error("Unauthorized");
-
-  const project = await db.project.findUnique({
+  const project = await db.project.findFirst({
     where: {
-      id: projectId,
+      id: validatedProjectId,
       userId: user.id,
     },
   });
 
-  if (!project) throw new Error("Project not found");
+  if (!project) {
+    throw new Error("Project not found.");
+  }
 
   return project;
-};
+}
