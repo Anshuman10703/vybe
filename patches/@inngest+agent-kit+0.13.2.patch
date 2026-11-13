@@ -1,0 +1,90 @@
+diff --git a/node_modules/@inngest/agent-kit/dist/chunk-BSWKEFTT.js b/node_modules/@inngest/agent-kit/dist/chunk-BSWKEFTT.js
+index 50538d4..2093115 100644
+--- a/node_modules/@inngest/agent-kit/dist/chunk-BSWKEFTT.js
++++ b/node_modules/@inngest/agent-kit/dist/chunk-BSWKEFTT.js
+@@ -657,20 +657,29 @@ var responseParser4 = (input) => {
+           type: "text",
+           content: content.text
+         });
+-      } else if (candidate.content.role === "model" && "functionCall" in content) {
+-        messages.push({
+-          role: "assistant",
+-          type: "tool_call",
+-          stop_reason: "tool",
+-          tools: [
+-            {
+-              name: content.functionCall.name,
+-              input: content.functionCall.args,
+-              type: "tool",
+-              id: content.functionCall.name
+-            }
+-          ]
+-        });
++      } else if (
++  candidate.content.role === "model" &&
++  "functionCall" in content
++) {
++  const thoughtSignature =
++    content.thoughtSignature ?? content.thought_signature;
++
++  messages.push({
++    role: "assistant",
++    type: "tool_call",
++    stop_reason: "tool",
++    tools: [
++      {
++        name: content.functionCall.name,
++        input: content.functionCall.args,
++        type: "tool",
++        id: content.functionCall.name,
++        ...(thoughtSignature != null && {
++          thought_signature: thoughtSignature,
++        }),
++      },
++    ],
++  });
+       } else if (candidate.content.role === "user" && "functionResponse" in content) {
+         messages.push({
+           role: "tool_result",
+@@ -707,12 +716,15 @@ var messageToContent = (m) => {
+           return {
+             role: "model",
+             parts: [
+-              {
+-                functionCall: {
+-                  name: m.tools[0].name,
+-                  args: m.tools[0].input
+-                }
+-              }
++             {
++  functionCall: {
++    name: m.tools[0].name,
++    args: m.tools[0].input
++  },
++  ...(m.tools[0].thought_signature != null
++  ? { thoughtSignature: m.tools[0].thought_signature }
++  : { thoughtSignature: "skip_thought_signature_validator" })
++}
+             ]
+           };
+         case "text":
+@@ -732,11 +744,14 @@ var messageToContent = (m) => {
+             role: "model",
+             parts: [
+               {
+-                functionCall: {
+-                  name: m.tools[0].name,
+-                  args: m.tools[0].input
+-                }
+-              }
++  functionCall: {
++    name: m.tools[0].name,
++    args: m.tools[0].input
++  },
++  ...(m.tools[0].thought_signature != null
++  ? { thoughtSignature: m.tools[0].thought_signature }
++  : { thoughtSignature: "skip_thought_signature_validator" })
++}
+             ]
+           };
+         case "text":

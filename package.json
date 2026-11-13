@@ -7,7 +7,7 @@
     "build": "prisma generate --config prisma7.config.ts && next build",
     "start": "next start",
     "lint": "eslint",
-    "postinstall": "prisma skills sync || exit 0"
+    "postinstall": "prisma skills sync || true; patch-package"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
